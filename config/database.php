@@ -2,9 +2,9 @@
 // 数据库配置文件
 
 define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'campus_forum');
+define('DB_USER', 'xyw');
+define('DB_PASS', 'n4CEpCYZ5jBBj5Kn');
+define('DB_NAME', 'xyw');
 define('DB_CHARSET', 'utf8mb4');
 
 // 创建数据库连接
