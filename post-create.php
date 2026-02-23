@@ -12,42 +12,56 @@ $selectedCategory = isset($_GET['category']) ? intval($_GET['category']) : 0;
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $categoryId = intval($_POST['category_id'] ?? 0);
-    $title = trim($_POST['title'] ?? '');
-    $contentRaw = trim($_POST['content'] ?? '');
-    $contentHtml = sanitizePostHtml($contentRaw);
-    $contentText = stripHtmlToText($contentRaw);
-    if (mb_strlen($contentText) > 5000) {
-        $contentText = mb_substr($contentText, 0, 5000);
-    }
-    $content = $contentHtml; // 兼容旧字段
-
-    // 验证输入
-    if ($categoryId <= 0) {
-        $error = '请选择帖子板块';
-    } elseif (empty($title)) {
-        $error = '请输入帖子标题';
-    } elseif (mb_strlen($title) > 200) {
-        $error = '标题长度不能超过200个字符';
-    } elseif (empty($contentText)) {
-        $error = '请输入帖子内容';
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        $error = '无效请求，请刷新页面重试';
     } else {
-        $category = getCategory($categoryId);
-        if (!$category) {
-            $error = '选择的板块不存在';
+        $categoryId = intval($_POST['category_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $contentRaw = trim($_POST['content'] ?? '');
+        $contentHtml = sanitizePostHtml($contentRaw);
+        $contentText = stripHtmlToText($contentHtml);
+        if (mb_strlen($contentText) > 5000) {
+            $contentText = mb_substr($contentText, 0, 5000);
+        }
+        $content = $contentHtml; // 兼容旧字段
+
+        // 验证输入
+        if ($categoryId <= 0) {
+            $error = '请选择帖子板块';
+        } elseif (empty($title)) {
+            $error = '请输入帖子标题';
+        } elseif (mb_strlen($title) > 200) {
+            $error = '标题长度不能超过200个字符';
+        } elseif (empty($contentText)) {
+            $error = '请输入帖子内容';
         } else {
-            $pdo = getDBConnection();
-            $stmt = $pdo->prepare("INSERT INTO posts (user_id, category_id, title, content, content_html, content_text) VALUES (?, ?, ?, ?, ?, ?)");
-            $ok = @$stmt->execute([$_SESSION['user_id'], $categoryId, $title, $content, $contentHtml, $contentText]);
-            if (!$ok) {
-                $stmt = $pdo->prepare("INSERT INTO posts (user_id, category_id, title, content) VALUES (?, ?, ?, ?)");
-                $ok = $stmt->execute([$_SESSION['user_id'], $categoryId, $title, $content]);
-            }
-            if ($ok) {
-                $postId = $pdo->lastInsertId();
-                redirect('post.php?id=' . $postId);
+            $category = getCategory($categoryId);
+            if (!$category) {
+                $error = '选择的板块不存在';
             } else {
-                $error = '发布失败，请稍后重试';
+                $pdo = getDBConnection();
+                try {
+                    $stmt = $pdo->prepare("INSERT INTO posts (user_id, category_id, title, content, content_html, content_text) VALUES (?, ?, ?, ?, ?, ?)");
+                    $ok = $stmt->execute([$_SESSION['user_id'], $categoryId, $title, $content, $contentHtml, $contentText]);
+                    if (!$ok) {
+                        // 尝试兼容旧表结构
+                        $stmt = $pdo->prepare("INSERT INTO posts (user_id, category_id, title, content) VALUES (?, ?, ?, ?)");
+                        $ok = $stmt->execute([$_SESSION['user_id'], $categoryId, $title, $content]);
+                    }
+                    if ($ok) {
+                        $postId = $pdo->lastInsertId();
+                        redirect('post.php?id=' . $postId);
+                    } else {
+                        $error = '发布失败，请稍后重试';
+                    }
+                } catch (PDOException $e) {
+                    if (ENVIRONMENT === 'development') {
+                        $error = '发布失败: ' . $e->getMessage();
+                    } else {
+                        $error = '发布失败，请稍后重试';
+                        error_log('发布帖子失败: ' . $e->getMessage());
+                    }
+                }
             }
         }
     }
@@ -66,6 +80,7 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
         
         <form method="POST" action="" class="post-form">
+            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             <div class="form-group">
                 <label for="category_id">选择板块 <span class="required">*</span></label>
                 <select name="category_id" id="category_id" required>

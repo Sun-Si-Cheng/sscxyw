@@ -46,9 +46,10 @@ include __DIR__ . '/includes/header.php';
             </div>
             <ul class="conversation-list">
                 <?php foreach ($conversations as $c): ?>
+                <?php if (empty($c['other'])) continue; ?>
                 <li class="conversation-item <?php echo $currentConv && (int)$c['id'] === (int)$currentConv['id'] ? 'active' : ''; ?>">
                     <a href="messages.php?id=<?php echo $c['id']; ?>">
-                        <img src="uploads/avatars/<?php echo $c['other']['avatar'] ?? 'default_avatar.png'; ?>" alt="" class="conv-avatar">
+                        <img src="<?php echo getAvatarUrl($c['other']['avatar'] ?? null); ?>" alt="" class="conv-avatar">
                         <div class="conv-info">
                             <span class="conv-name"><?php echo clean($c['other']['nickname'] ?? $c['other']['username'] ?? ''); ?></span>
                             <span class="conv-preview"><?php echo clean(truncateText($c['last_content'] ?? '', 30)); ?></span>
@@ -72,7 +73,7 @@ include __DIR__ . '/includes/header.php';
             <div class="messages-list" id="messagesList" data-conversation-id="<?php echo $convId; ?>">
                 <?php foreach ($currentMessages as $m): ?>
                 <div class="message-item <?php echo (int)$m['sender_id'] === $userId ? 'self' : ''; ?>" data-msg-id="<?php echo $m['id']; ?>">
-                    <img src="uploads/avatars/<?php echo $m['avatar']; ?>" alt="" class="msg-avatar">
+                    <img src="<?php echo getAvatarUrl($m['avatar']); ?>" alt="" class="msg-avatar">
                     <div class="msg-body">
                         <span class="msg-author"><?php echo clean($m['nickname'] ?: $m['username']); ?></span>
                         <div class="msg-content"><?php echo nl2br(clean($m['content'])); ?></div>
@@ -105,6 +106,11 @@ include __DIR__ . '/includes/header.php';
     var form = document.getElementById('sendMessageForm');
     var content = document.getElementById('messageContent');
     var convId = list.getAttribute('data-conversation-id');
+    var defaultAvatar = 'uploads/avatars/default_avatar.png';
+
+    function getAvatarUrl(avatar) {
+        return avatar ? 'uploads/avatars/' + avatar : defaultAvatar;
+    }
 
     form.addEventListener('submit', function(e) {
         e.preventDefault();
@@ -119,7 +125,7 @@ include __DIR__ . '/includes/header.php';
                 if (res.error) { alert(res.error); return; }
                 content.value = '';
                 var m = res.message;
-                var html = '<div class="message-item self" data-msg-id="' + m.id + '"><img src="uploads/avatars/' + (m.avatar || 'default_avatar.png') + '" alt="" class="msg-avatar"><div class="msg-body"><span class="msg-author">' + (m.nickname || m.username) + '</span><div class="msg-content">' + (m.content.replace(/</g, '&lt;').replace(/\n/g, '<br>')) + '</div><span class="msg-time">刚刚</span></div></div>';
+                var html = '<div class="message-item self" data-msg-id="' + m.id + '"><img src="' + getAvatarUrl(m.avatar) + '" alt="" class="msg-avatar"><div class="msg-body"><span class="msg-author">' + (m.nickname || m.username) + '</span><div class="msg-content">' + (m.content.replace(/</g, '&lt;').replace(/\n/g, '<br>')) + '</div><span class="msg-time">刚刚</span></div></div>';
                 list.insertAdjacentHTML('beforeend', html);
                 list.scrollTop = list.scrollHeight;
                 lastMsgId = m.id;
@@ -139,7 +145,7 @@ include __DIR__ . '/includes/header.php';
                     .then(function(data) {
                         (data.messages || []).forEach(function(m) {
                             var isSelf = m.sender_id == <?php echo $userId; ?>;
-                            var html = '<div class="message-item ' + (isSelf ? 'self' : '') + '" data-msg-id="' + m.id + '"><img src="uploads/avatars/' + (m.avatar || 'default_avatar.png') + '" alt="" class="msg-avatar"><div class="msg-body"><span class="msg-author">' + (m.nickname || m.username) + '</span><div class="msg-content">' + String(m.content).replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div><span class="msg-time">' + m.created_at + '</span></div></div>';
+                            var html = '<div class="message-item ' + (isSelf ? 'self' : '') + '" data-msg-id="' + m.id + '"><img src="' + getAvatarUrl(m.avatar) + '" alt="" class="msg-avatar"><div class="msg-body"><span class="msg-author">' + (m.nickname || m.username) + '</span><div class="msg-content">' + String(m.content).replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div><span class="msg-time">' + m.created_at + '</span></div></div>';
                             list.insertAdjacentHTML('beforeend', html);
                             lastMsgId = m.id;
                         });

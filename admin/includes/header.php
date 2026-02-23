@@ -9,18 +9,6 @@ $adminUser = getCurrentUser();
     <title><?php echo isset($pageTitle) ? $pageTitle . ' - ' : ''; ?>后台管理</title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .admin-layout { display: flex; min-height: 100vh; }
-        .admin-sidebar { width: 220px; background: #1f2937; color: #fff; padding: 1rem 0; }
-        .admin-sidebar a { display: block; padding: 0.5rem 1.25rem; color: #d1d5db; text-decoration: none; }
-        .admin-sidebar a:hover, .admin-sidebar a.active { background: #374151; color: #fff; }
-        .admin-main { flex: 1; padding: 1.5rem; background: #f3f4f6; }
-        .admin-page-title { font-size: 1.25rem; margin-bottom: 1rem; }
-        .admin-card { background: #fff; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1.25rem; margin-bottom: 1rem; }
-        .admin-table { width: 100%; border-collapse: collapse; }
-        .admin-table th, .admin-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #e5e7eb; }
-        .admin-table th { background: #f9fafb; font-weight: 600; }
-    </style>
 </head>
 <body>
     <div class="admin-layout">

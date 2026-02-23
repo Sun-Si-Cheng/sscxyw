@@ -1,3 +1,9 @@
+<?php
+// 确保 $pageTitle 变量存在
+if (!isset($pageTitle)) {
+    $pageTitle = '';
+}
+?>
     </main>
     
     <footer class="footer">

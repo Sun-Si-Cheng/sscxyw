@@ -11,29 +11,55 @@ $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $currentPassword = $_POST['current_password'] ?? '';
-    $newPassword = $_POST['new_password'] ?? '';
-    $confirmPassword = $_POST['confirm_password'] ?? '';
-    
-    // 验证输入
-    if (empty($currentPassword) || empty($newPassword) || empty($confirmPassword)) {
-        $error = '请填写所有密码字段';
-    } elseif (!password_verify($currentPassword, $currentUser['password'])) {
-        $error = '当前密码不正确';
-    } elseif (strlen($newPassword) < 6) {
-        $error = '新密码长度至少为6个字符';
-    } elseif ($newPassword !== $confirmPassword) {
-        $error = '两次输入的新密码不一致';
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        $error = '无效请求，请刷新页面重试';
     } else {
-        // 更新密码
-        $pdo = getDBConnection();
-        $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
+        $currentPassword = $_POST['current_password'] ?? '';
+        $newPassword = $_POST['new_password'] ?? '';
+        $confirmPassword = $_POST['confirm_password'] ?? '';
         
-        if ($stmt->execute([$hashedPassword, $currentUser['id']])) {
-            $success = '密码修改成功！';
+        // 验证输入
+        if (empty($currentPassword) || empty($newPassword) || empty($confirmPassword)) {
+            $error = '请填写所有密码字段';
+        } elseif (!password_verify($currentPassword, $currentUser['password'])) {
+            $error = '当前密码不正确';
+        } elseif (strlen($newPassword) < 8) {
+            $error = '新密码长度至少为8个字符';
+        } elseif (!preg_match('/[A-Za-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword)) {
+            $error = '新密码必须包含字母和数字';
+        } elseif ($newPassword !== $confirmPassword) {
+            $error = '两次输入的新密码不一致';
         } else {
-            $error = '密码修改失败，请稍后重试';
+            // 更新密码
+            $pdo = getDBConnection();
+            try {
+                $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+                $stmt = $pdo->prepare("UPDATE users SET password = ? WHERE id = ?");
+                
+                if ($stmt->execute([$hashedPassword, $currentUser['id']])) {
+                    // 清除记住我令牌，强制重新登录
+                    $stmt = $pdo->prepare("DELETE FROM user_tokens WHERE user_id = ?");
+                    $stmt->execute([$currentUser['id']]);
+                    
+                    // 清除cookie
+                    if (isset($_COOKIE['remember_token'])) {
+                        setcookie('remember_token', '', time() - 42000, '/', '', isset($_SERVER['HTTPS']), true);
+                    }
+                    
+                    $success = '密码修改成功！请重新登录。';
+                    // 3秒后跳转到登录页面
+                    echo '<script>setTimeout(function() { window.location.href = "login.php"; }, 3000);</script>';
+                } else {
+                    $error = '密码修改失败，请稍后重试';
+                }
+            } catch (PDOException $e) {
+                if (ENVIRONMENT === 'development') {
+                    $error = '密码修改失败: ' . $e->getMessage();
+                } else {
+                    $error = '密码修改失败，请稍后重试';
+                    error_log('修改密码失败: ' . $e->getMessage());
+                }
+            }
         }
     }
 }
@@ -55,6 +81,7 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
         
         <form method="POST" action="" class="auth-form">
+            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             <div class="form-group">
                 <label for="current_password">当前密码 <span class="required">*</span></label>
                 <div class="input-group">

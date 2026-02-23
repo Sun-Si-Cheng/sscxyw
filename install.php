@@ -4,7 +4,7 @@
  */
 
 // 定义安装锁文件路径
-define('INSTALL_LOCK', __DIR__ . '/install.lock');
+define('INSTALL_LOCK', __DIR__ . DIRECTORY_SEPARATOR . 'install.lock');
 
 // 检查是否已安装
 if (file_exists(INSTALL_LOCK)) {
@@ -34,10 +34,10 @@ function getSystemInfo() {
 // 检查目录权限
 function checkPermissions() {
     $dirs = [
-        'config' => is_writable(__DIR__ . '/config'),
-        'uploads' => is_writable(__DIR__ . '/uploads'),
-        'uploads/avatars' => is_writable(__DIR__ . '/uploads/avatars'),
-        'uploads/posts' => is_writable(__DIR__ . '/uploads/posts'),
+        'config' => is_writable(__DIR__ . DIRECTORY_SEPARATOR . 'config'),
+        'uploads' => is_writable(__DIR__ . DIRECTORY_SEPARATOR . 'uploads'),
+        'uploads/avatars' => is_writable(__DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'avatars'),
+        'uploads/posts' => is_writable(__DIR__ . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'posts'),
     ];
     return $dirs;
 }
@@ -63,6 +63,9 @@ switch ($step) {
             // 验证输入
             if (empty($dbHost) || empty($dbName) || empty($dbUser)) {
                 $error = '请填写完整的数据库信息';
+            } elseif (!empty($dbPrefix)) {
+                // 目前代码中所有 SQL 都使用固定表名，为避免安装失败，暂不支持自定义前缀
+                $error = '当前版本暂不支持自定义数据表前缀，请将表前缀留空后重试';
             } else {
                 // 测试连接
                 try {
@@ -70,8 +73,9 @@ switch ($step) {
                     $pdo = new PDO($dsn, $dbUser, $dbPass);
                     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
                     
-                    // 保存配置到 session
-                    session_start();
+                    if (session_status() === PHP_SESSION_NONE) {
+                        session_start();
+                    }
                     $_SESSION['install_db'] = [
                         'host' => $dbHost,
                         'port' => $dbPort,
@@ -92,8 +96,9 @@ switch ($step) {
         break;
         
     case 3:
-        // 管理员设置
-        session_start();
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
         if (!isset($_SESSION['install_db'])) {
             header('Location: install.php?step=2');
             exit;
@@ -134,8 +139,9 @@ switch ($step) {
         break;
         
     case 4:
-        // 执行安装
-        session_start();
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
         if (!isset($_SESSION['install_db']) || !isset($_SESSION['install_admin'])) {
             header('Location: install.php?step=2');
             exit;
@@ -154,22 +160,32 @@ switch ($step) {
             $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$db['name']}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
             $pdo->exec("USE `{$db['name']}`");
             
-            // 读取并执行 SQL 文件
-            $sql = file_get_contents(__DIR__ . '/database_import.sql');
-            
-            // 替换表前缀
-            if (!empty($db['prefix'])) {
-                $sql = str_replace('CREATE TABLE IF NOT EXISTS ', 'CREATE TABLE IF NOT EXISTS `' . $db['prefix'], $sql);
-                $sql = str_replace('INSERT INTO ', 'INSERT INTO `' . $db['prefix'], $sql);
-                $sql = str_replace('REFERENCES ', 'REFERENCES `' . $db['prefix'], $sql);
-                $sql = str_replace('`' . $db['prefix'] . '`', '`' . $db['prefix'], $sql);
+            // 读取并执行基础表结构 SQL 文件
+            $sqlFile = __DIR__ . DIRECTORY_SEPARATOR . 'database_import.sql';
+            if (!file_exists($sqlFile)) {
+                throw new Exception('数据库文件 database_import.sql 不存在');
             }
+            $sql = file_get_contents($sqlFile);
             
             // 分割并执行 SQL 语句
             $statements = array_filter(array_map('trim', explode(';', $sql)));
             foreach ($statements as $statement) {
                 if (!empty($statement)) {
                     $pdo->exec($statement);
+                }
+            }
+            
+            // 如存在扩展表结构文件，继续导入（站内信、通知等功能所需）
+            $extensionFile = __DIR__ . DIRECTORY_SEPARATOR . 'database_schema_extension.sql';
+            if (file_exists($extensionFile)) {
+                $extSql = file_get_contents($extensionFile);
+                // 去掉或替换固定的 USE 语句，避免与上方已选择的数据库冲突
+                $extSql = preg_replace('/^USE\s+.+?;\s*/mi', '', $extSql);
+                $extStatements = array_filter(array_map('trim', explode(';', $extSql)));
+                foreach ($extStatements as $statement) {
+                    if (!empty($statement)) {
+                        $pdo->exec($statement);
+                    }
                 }
             }
             
@@ -180,6 +196,7 @@ switch ($step) {
             $stmt->execute([$admin['username'], $hashedPassword, $admin['email'], $admin['username']]);
             
             // 保存数据库配置
+            $dbConfigFile = __DIR__ . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'database.php';
             $configContent = "<?php\n// 数据库配置文件\n\n";
             $configContent .= "define('DB_HOST', '{$db['host']}');\n";
             $configContent .= "define('DB_USER', '{$db['user']}');\n";
@@ -187,27 +204,38 @@ switch ($step) {
             $configContent .= "define('DB_NAME', '{$db['name']}');\n";
             $configContent .= "define('DB_PREFIX', '{$db['prefix']}');\n";
             $configContent .= "define('DB_CHARSET', 'utf8mb4');\n\n";
-            $configContent .= file_get_contents(__DIR__ . '/config/database.php');
             
-            // 提取 getDBConnection 函数部分
-            preg_match('/\/\/ 创建数据库连接.*$/s', $configContent, $matches);
-            if ($matches) {
-                $configContent = "<?php\n// 数据库配置文件\n\n";
-                $configContent .= "define('DB_HOST', '{$db['host']}');\n";
-                $configContent .= "define('DB_USER', '{$db['user']}');\n";
-                $configContent .= "define('DB_PASS', '{$db['pass']}');\n";
-                $configContent .= "define('DB_NAME', '{$db['name']}');\n";
-                $configContent .= "define('DB_PREFIX', '{$db['prefix']}');\n";
-                $configContent .= "define('DB_CHARSET', 'utf8mb4');\n\n";
-                $configContent .= $matches[0];
-            }
+            // 添加 getDBConnection 函数
+            $configContent .= "// 创建数据库连接\n";
+            $configContent .= "function getDBConnection() {\n";
+            $configContent .= "    static \$pdo = null;\n";
+            $configContent .= "    \n";
+            $configContent .= "    if (\$pdo === null) {\n";
+            $configContent .= "        try {\n";
+            $configContent .= "            \$dsn = \"mysql:host=\" . DB_HOST . \";dbname=\" . DB_NAME . \";charset=\" . DB_CHARSET;\n";
+            $configContent .= "            \$options = [\n";
+            $configContent .= "                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,\n";
+            $configContent .= "                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,\n";
+            $configContent .= "                PDO::ATTR_EMULATE_PREPARES => false,\n";
+            $configContent .= "            ];\n";
+            $configContent .= "            \$pdo = new PDO(\$dsn, DB_USER, DB_PASS, \$options);\n";
+            $configContent .= "        } catch (PDOException \$e) {\n";
+            $configContent .= "            die(\"数据库连接失败: \" . \$e->getMessage());\n";
+            $configContent .= "        }\n";
+            $configContent .= "    }\n";
+            $configContent .= "    \n";
+            $configContent .= "    return \$pdo;\n";
+            $configContent .= "}\n";
             
-            file_put_contents(__DIR__ . '/config/database.php', $configContent);
+            file_put_contents($dbConfigFile, $configContent);
             
             // 更新网站名称
-            $configFile = file_get_contents(__DIR__ . '/config/config.php');
-            $configFile = str_replace("define('SITE_NAME', '校园论坛')", "define('SITE_NAME', '" . addslashes($admin['site_name']) . "')", $configFile);
-            file_put_contents(__DIR__ . '/config/config.php', $configFile);
+            $configFile = __DIR__ . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'config.php';
+            if (file_exists($configFile)) {
+                $configContent = file_get_contents($configFile);
+                $configContent = str_replace("define('SITE_NAME', '校园论坛')", "define('SITE_NAME', '" . addslashes($admin['site_name']) . "')", $configContent);
+                file_put_contents($configFile, $configContent);
+            }
             
             // 创建安装锁文件
             file_put_contents(INSTALL_LOCK, date('Y-m-d H:i:s'));
@@ -234,368 +262,10 @@ switch ($step) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>校园论坛 - 安装向导</title>
+    <link rel="stylesheet" href="assets/css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        
-        .install-container {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            width: 100%;
-            max-width: 700px;
-            overflow: hidden;
-        }
-        
-        .install-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .install-header h1 {
-            font-size: 24px;
-            margin-bottom: 8px;
-        }
-        
-        .install-header p {
-            opacity: 0.9;
-            font-size: 14px;
-        }
-        
-        /* 步骤指示器 */
-        .step-indicator {
-            display: flex;
-            justify-content: center;
-            padding: 20px;
-            background: #f8f9fa;
-            border-bottom: 1px solid #e9ecef;
-        }
-        
-        .step {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            color: #6c757d;
-        }
-        
-        .step.active {
-            background: #667eea;
-            color: white;
-        }
-        
-        .step.completed {
-            color: #28a745;
-        }
-        
-        .step i {
-            font-size: 16px;
-        }
-        
-        .step-divider {
-            width: 30px;
-            height: 2px;
-            background: #dee2e6;
-            margin: 0 8px;
-        }
-        
-        /* 内容区域 */
-        .install-content {
-            padding: 30px;
-        }
-        
-        .content-title {
-            font-size: 20px;
-            margin-bottom: 20px;
-            color: #333;
-        }
-        
-        /* 环境检测 */
-        .check-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        
-        .check-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border-left: 4px solid #dee2e6;
-        }
-        
-        .check-item.success {
-            border-left-color: #28a745;
-            background: #d4edda;
-        }
-        
-        .check-item.error {
-            border-left-color: #dc3545;
-            background: #f8d7da;
-        }
-        
-        .check-info {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .check-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-        }
-        
-        .check-item.success .check-icon {
-            background: #28a745;
-            color: white;
-        }
-        
-        .check-item.error .check-icon {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .check-name {
-            font-weight: 500;
-            color: #333;
-        }
-        
-        .check-value {
-            font-size: 13px;
-            color: #6c757d;
-        }
-        
-        .check-status {
-            font-size: 13px;
-            font-weight: 500;
-        }
-        
-        .check-item.success .check-status {
-            color: #28a745;
-        }
-        
-        .check-item.error .check-status {
-            color: #dc3545;
-        }
-        
-        /* 表单样式 */
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            color: #333;
-        }
-        
-        .form-group label .required {
-            color: #dc3545;
-        }
-        
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.3s;
-        }
-        
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-        
-        .form-hint {
-            font-size: 12px;
-            color: #6c757d;
-            margin-top: 5px;
-        }
-        
-        /* 提示消息 */
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .alert-danger {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        /* 按钮 */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 12px 30px;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s;
-            border: none;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .btn-secondary:hover {
-            background: #5a6268;
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-        
-        .btn-group {
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            margin-top: 30px;
-        }
-        
-        /* 安装成功 */
-        .success-icon {
-            width: 80px;
-            height: 80px;
-            background: #28a745;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 20px;
-            color: white;
-            font-size: 40px;
-        }
-        
-        .success-message {
-            text-align: center;
-        }
-        
-        .success-message h2 {
-            color: #28a745;
-            margin-bottom: 10px;
-        }
-        
-        .success-message p {
-            color: #6c757d;
-            margin-bottom: 20px;
-        }
-        
-        .info-box {
-            background: #e7f3ff;
-            border: 1px solid #b8daff;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 20px 0;
-            text-align: left;
-        }
-        
-        .info-box h4 {
-            color: #004085;
-            margin-bottom: 10px;
-        }
-        
-        .info-box p {
-            color: #004085;
-            margin: 5px 0;
-        }
-        
-        /* 加载动画 */
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        
-        /* 响应式 */
-        @media (max-width: 600px) {
-            .form-row {
-                grid-template-columns: 1fr;
-            }
-            
-            .step-indicator {
-                flex-wrap: wrap;
-            }
-            
-            .step-divider {
-                display: none;
-            }
-        }
-    </style>
 </head>
-<body>
+<body class="install-page">
     <div class="install-container">
         <div class="install-header">
             <h1><i class="fas fa-graduation-cap"></i> 校园论坛安装向导</h1>

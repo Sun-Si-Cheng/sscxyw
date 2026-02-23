@@ -92,7 +92,7 @@ include __DIR__ . '/includes/header.php';
         <?php foreach ($userResult['items'] as $u): ?>
         <li class="follow-item">
             <a href="user_profile.php?id=<?php echo $u['id']; ?>" class="follow-avatar">
-                <img src="uploads/avatars/<?php echo $u['avatar']; ?>" alt="">
+                <img src="<?php echo getAvatarUrl($u['avatar']); ?>" alt="">
             </a>
             <div class="follow-info">
                 <a href="user_profile.php?id=<?php echo $u['id']; ?>"><?php echo clean($u['nickname'] ?: $u['username']); ?></a>

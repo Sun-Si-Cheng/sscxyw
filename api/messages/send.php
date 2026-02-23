@@ -8,6 +8,11 @@ if (!isLoggedIn()) {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['error' => '无效请求方法']);
+    exit;
+}
+
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
 $convId = (int) ($_POST['conversation_id'] ?? $input['conversation_id'] ?? 0);
 $content = trim($_POST['content'] ?? $input['content'] ?? '');

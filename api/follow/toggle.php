@@ -1,14 +1,15 @@
 <?php
-/**
- * 关注/取关接口 POST target_user_id
- * 返回 JSON: { "followed": true|false }
- */
 require_once __DIR__ . '/../../includes/functions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
 if (!isLoggedIn()) {
     echo json_encode(['error' => '请先登录']);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    echo json_encode(['error' => '无效请求方法']);
     exit;
 }
 

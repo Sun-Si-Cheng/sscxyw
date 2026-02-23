@@ -13,6 +13,9 @@ $perPage = (int) ($_GET['per_page'] ?? 20);
 $perPage = min(max(1, $perPage), 50);
 
 $list = getNotifications((int) $_SESSION['user_id'], $page, $perPage);
+if (!is_array($list)) {
+    $list = [];
+}
 $total = getNotificationsCount((int) $_SESSION['user_id']);
 
 $out = [];

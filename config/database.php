@@ -21,7 +21,19 @@ function getDBConnection() {
             ];
             $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
-            die("数据库连接失败: " . $e->getMessage());
+            if (ENVIRONMENT === 'development') {
+                throw new Exception("数据库连接失败: " . $e->getMessage());
+            } else {
+                // 记录错误到日志
+                error_log("数据库连接失败: " . $e->getMessage());
+                // 显示用户友好的错误信息
+                if (!headers_sent()) {
+                    header('HTTP/1.1 503 Service Unavailable');
+                    header('Content-Type: text/html; charset=utf-8');
+                }
+                echo '<h1>服务暂时不可用</h1><p>系统正在维护中，请稍后再试。</p>';
+                exit(1);
+            }
         }
     }
     

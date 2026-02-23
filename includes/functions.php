@@ -8,9 +8,42 @@ function clean($data) {
     return htmlspecialchars(trim($data), ENT_QUOTES, 'UTF-8');
 }
 
+// 获取用户头像URL
+function getAvatarUrl($avatar, $default = 'default_avatar.png') {
+    $avatarFile = $avatar ?: $default;
+    $avatarPath = 'uploads/avatars/' . $avatarFile;
+    $fullPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'avatars' . DIRECTORY_SEPARATOR . $avatarFile;
+    if ($avatar && file_exists($fullPath)) {
+        return $avatarPath;
+    }
+    return 'uploads/avatars/' . $default;
+}
+
 // 检查用户是否登录
 function isLoggedIn() {
-    return isset($_SESSION['user_id']) && !empty($_SESSION['user_id']);
+    if (isset($_SESSION['user_id']) && !empty($_SESSION['user_id'])) {
+        return true;
+    }
+    
+    // 检查记住我令牌
+    if (isset($_COOKIE['remember_token'])) {
+        $token = $_COOKIE['remember_token'];
+        $pdo = getDBConnection();
+        
+        $stmt = $pdo->prepare("SELECT u.id, u.username FROM users u
+                               JOIN user_tokens ut ON u.id = ut.user_id
+                               WHERE ut.token = ? AND ut.expires_at > NOW() AND u.status = 1");
+        $stmt->execute([$token]);
+        $user = $stmt->fetch();
+        
+        if ($user) {
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['username'] = $user['username'];
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 // 获取当前登录用户信息
@@ -120,9 +153,7 @@ function getPosts($categoryId = null, $page = 1, $perPage = POSTS_PER_PAGE) {
         $params[] = $categoryId;
     }
     
-    $sql .= " ORDER BY p.is_top DESC, p.created_at DESC LIMIT ? OFFSET ?";
-    $params[] = $perPage;
-    $params[] = $offset;
+    $sql .= " ORDER BY p.is_top DESC, p.created_at DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset;
     
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -191,7 +222,9 @@ function getReplies($commentId) {
 // 富文本：将 HTML 转为纯文本（用于搜索摘要）
 function stripHtmlToText($html) {
     if ($html === null || $html === '') return '';
-    $text = strip_tags($html);
+    // 先解码 HTML 实体
+    $text = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = strip_tags($text);
     $text = preg_replace('/\s+/', ' ', $text);
     return trim($text);
 }
@@ -251,7 +284,7 @@ function followToggle($followerId, $followingId) {
         $stmt->execute([$followerId, $followingId]);
         return false;
     } else {
-        $stmt = $pdo->prepare("INSERT INTO follows (follower_id, following_id) VALUES (?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, NOW())");
         $stmt->execute([$followerId, $followingId]);
         return true;
     }
@@ -261,21 +294,25 @@ function followToggle($followerId, $followingId) {
 function getFollowList($userId, $type = 'followers', $page = 1, $perPage = 20) {
     $pdo = getDBConnection();
     $offset = ($page - 1) * $perPage;
+    $perPage = (int)$perPage;
+    $offset = (int)$offset;
     if ($type === 'followers') {
-        $sql = "SELECT u.id, u.username, u.nickname, u.avatar FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.following_id = ? AND u.status = 1 ORDER BY f.created_at DESC LIMIT ? OFFSET ?";
+        $sql = "SELECT u.id, u.username, u.nickname, u.avatar FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.following_id = ? AND u.status = 1 ORDER BY f.created_at DESC LIMIT {$perPage} OFFSET {$offset}";
     } else {
-        $sql = "SELECT u.id, u.username, u.nickname, u.avatar FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 1 ORDER BY f.created_at DESC LIMIT ? OFFSET ?";
+        $sql = "SELECT u.id, u.username, u.nickname, u.avatar FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 1 ORDER BY f.created_at DESC LIMIT {$perPage} OFFSET {$offset}";
     }
     $stmt = $pdo->prepare($sql);
-    $stmt->execute([$userId, $perPage, $offset]);
+    $stmt->execute([$userId]);
     return $stmt->fetchAll();
 }
 
 function getFollowListCount($userId, $type = 'followers') {
     $pdo = getDBConnection();
-    $col = $type === 'followers' ? 'following_id' : 'follower_id';
-    $joinId = $type === 'followers' ? 'f.follower_id' : 'f.following_id';
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM follows f JOIN users u ON u.id = {$joinId} WHERE f.{$col} = ? AND u.status = 1");
+    if ($type === 'followers') {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.follower_id WHERE f.following_id = ? AND u.status = 1");
+    } else {
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.following_id WHERE f.follower_id = ? AND u.status = 1");
+    }
     $stmt->execute([$userId]);
     return (int) $stmt->fetchColumn();
 }
@@ -283,7 +320,7 @@ function getFollowListCount($userId, $type = 'followers') {
 // 创建通知（供关注、消息等模块调用）
 function createNotification($userId, $type, $data = null) {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, data) VALUES (?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, type, data, created_at) VALUES (?, ?, ?, NOW())");
     $stmt->execute([$userId, $type, $data !== null ? json_encode($data) : null]);
 }
 
@@ -300,9 +337,9 @@ function getOrCreatePrivateConversation($userId1, $userId2) {
     $stmt->execute([$userId1, $userId2]);
     $row = $stmt->fetch();
     if ($row) return (int) $row['id'];
-    $pdo->exec("INSERT INTO conversations (type) VALUES ('private')");
+    $pdo->exec("INSERT INTO conversations (type, created_at, updated_at) VALUES ('private', NOW(), NOW())");
     $convId = (int) $pdo->lastInsertId();
-    $stmt = $pdo->prepare("INSERT INTO conversation_participants (conversation_id, user_id) VALUES (?, ?), (?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO conversation_participants (conversation_id, user_id, joined_at) VALUES (?, ?, NOW()), (?, ?, NOW())");
     $stmt->execute([$convId, $userId1, $convId, $userId2]);
     return $convId;
 }
@@ -351,6 +388,8 @@ function getConversationUnreadCount($conversationId, $userId) {
 function getConversationMessages($conversationId, $userId, $page = 1, $perPage = 30) {
     $pdo = getDBConnection();
     $offset = ($page - 1) * $perPage;
+    $perPage = (int)$perPage;
+    $offset = (int)$offset;
     $stmt = $pdo->prepare("
         SELECT m.id, m.sender_id, m.content, m.content_type, m.created_at,
                u.username, u.nickname, u.avatar
@@ -358,21 +397,21 @@ function getConversationMessages($conversationId, $userId, $page = 1, $perPage =
         JOIN users u ON u.id = m.sender_id
         WHERE m.conversation_id = ?
         ORDER BY m.created_at DESC
-        LIMIT ? OFFSET ?
+        LIMIT {$perPage} OFFSET {$offset}
     ");
-    $stmt->execute([$conversationId, $perPage, $offset]);
+    $stmt->execute([$conversationId]);
     return array_reverse($stmt->fetchAll());
 }
 
 function sendMessage($conversationId, $senderId, $content, $contentType = 'text') {
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare("INSERT INTO messages (conversation_id, sender_id, content, content_type) VALUES (?, ?, ?, ?)");
+    $stmt = $pdo->prepare("INSERT INTO messages (conversation_id, sender_id, content, content_type, created_at) VALUES (?, ?, ?, ?, NOW())");
     $stmt->execute([$conversationId, $senderId, $content, $contentType]);
     $messageId = (int) $pdo->lastInsertId();
     $stmt = $pdo->prepare("SELECT user_id FROM conversation_participants WHERE conversation_id = ? AND user_id != ?");
     $stmt->execute([$conversationId, $senderId]);
     while ($row = $stmt->fetch()) {
-        $pdo->prepare("INSERT INTO message_receipts (message_id, user_id, is_read) VALUES (?, ?, 0)")->execute([$messageId, $row['user_id']]);
+        $pdo->prepare("INSERT INTO message_receipts (message_id, user_id, is_read, created_at) VALUES (?, ?, 0, NOW())")->execute([$messageId, $row['user_id']]);
         createNotification($row['user_id'], 'new_message', ['conversation_id' => $conversationId, 'message_id' => $messageId]);
     }
     $pdo->prepare("UPDATE conversations SET updated_at = NOW() WHERE id = ?")->execute([$conversationId]);
@@ -401,8 +440,10 @@ function getTotalUnreadMessagesCount($userId) {
 function getNotifications($userId, $page = 1, $perPage = 20) {
     $pdo = getDBConnection();
     $offset = ($page - 1) * $perPage;
-    $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?");
-    $stmt->execute([$userId, $perPage, $offset]);
+    $perPage = (int)$perPage;
+    $offset = (int)$offset;
+    $stmt = $pdo->prepare("SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT {$perPage} OFFSET {$offset}");
+    $stmt->execute([$userId]);
     return $stmt->fetchAll();
 }
 
@@ -417,7 +458,7 @@ function admin_log($adminId, $action, $targetType = null, $targetId = null) {
     $pdo = getDBConnection();
     $ip = $_SERVER['REMOTE_ADDR'] ?? null;
     try {
-        $stmt = $pdo->prepare("INSERT INTO admin_logs (admin_id, action, target_type, target_id, ip) VALUES (?, ?, ?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO admin_logs (admin_id, action, target_type, target_id, ip, created_at) VALUES (?, ?, ?, ?, ?, NOW())");
         $stmt->execute([$adminId, $action, $targetType, $targetId, $ip]);
     } catch (Exception $e) {
         // table may not exist yet
@@ -447,6 +488,8 @@ function markAllNotificationsRead($userId) {
 function searchPosts($keyword, $page = 1, $perPage = 20) {
     $pdo = getDBConnection();
     $offset = ($page - 1) * $perPage;
+    $perPage = (int)$perPage;
+    $offset = (int)$offset;
     $kw = trim($keyword);
     if ($kw === '') return ['items' => [], 'total' => 0];
     $like = '%' . $kw . '%';
@@ -459,9 +502,9 @@ function searchPosts($keyword, $page = 1, $perPage = 20) {
             LEFT JOIN categories c ON c.id = p.category_id
             WHERE p.status = 1 AND (MATCH(p.title, p.content_text) AGAINST(? IN NATURAL LANGUAGE MODE) OR p.title LIKE ? OR p.content_text LIKE ?)
             ORDER BY p.created_at DESC
-            LIMIT ? OFFSET ?
+            LIMIT {$perPage} OFFSET {$offset}
         ");
-        $stmt->execute([$kw, $like, $like, $perPage, $offset]);
+        $stmt->execute([$kw, $like, $like]);
         $items = $stmt->fetchAll();
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM posts p WHERE p.status = 1 AND (MATCH(p.title, p.content_text) AGAINST(? IN NATURAL LANGUAGE MODE) OR p.title LIKE ? OR p.content_text LIKE ?)");
         $stmt->execute([$kw, $like, $like]);
@@ -475,9 +518,9 @@ function searchPosts($keyword, $page = 1, $perPage = 20) {
             LEFT JOIN categories c ON c.id = p.category_id
             WHERE p.status = 1 AND (p.title LIKE ? OR COALESCE(p.content_text, p.content) LIKE ?)
             ORDER BY p.created_at DESC
-            LIMIT ? OFFSET ?
+            LIMIT {$perPage} OFFSET {$offset}
         ");
-        $stmt->execute([$like, $like, $perPage, $offset]);
+        $stmt->execute([$like, $like]);
         $items = $stmt->fetchAll();
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM posts p WHERE p.status = 1 AND (p.title LIKE ? OR COALESCE(p.content_text, p.content) LIKE ?)");
         $stmt->execute([$like, $like]);
@@ -489,6 +532,8 @@ function searchPosts($keyword, $page = 1, $perPage = 20) {
 function searchUsers($keyword, $page = 1, $perPage = 20) {
     $pdo = getDBConnection();
     $offset = ($page - 1) * $perPage;
+    $perPage = (int)$perPage;
+    $offset = (int)$offset;
     $kw = trim($keyword);
     if ($kw === '') return ['items' => [], 'total' => 0];
     $like = '%' . $kw . '%';
@@ -497,9 +542,9 @@ function searchUsers($keyword, $page = 1, $perPage = 20) {
         FROM users
         WHERE status = 1 AND (username LIKE ? OR nickname LIKE ?)
         ORDER BY id DESC
-        LIMIT ? OFFSET ?
+        LIMIT {$perPage} OFFSET {$offset}
     ");
-    $stmt->execute([$like, $like, $perPage, $offset]);
+    $stmt->execute([$like, $like]);
     $items = $stmt->fetchAll();
     $stmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE status = 1 AND (username LIKE ? OR nickname LIKE ?)");
     $stmt->execute([$like, $like]);

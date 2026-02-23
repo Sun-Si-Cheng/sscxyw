@@ -19,22 +19,25 @@ $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isLoggedIn()) {
-    $content = trim($_POST['content'] ?? '');
-    $parentId = isset($_POST['parent_id']) ? intval($_POST['parent_id']) : null;
-    
-    if (empty($content)) {
-        $error = '请输入评论内容';
-    } elseif (strlen($content) > 1000) {
-        $error = '评论内容不能超过1000字';
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        $error = '无效请求，请刷新页面重试';
     } else {
-        $pdo = getDBConnection();
-        $stmt = $pdo->prepare("INSERT INTO comments (post_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)");
-        if ($stmt->execute([$postId, $_SESSION['user_id'], $parentId, $content])) {
-            $success = '评论发布成功！';
-            // 刷新页面以显示新评论
-            header("Refresh: 1; URL=post.php?id=" . $postId);
+        $content = trim($_POST['content'] ?? '');
+        $parentId = isset($_POST['parent_id']) ? intval($_POST['parent_id']) : null;
+        
+        if (empty($content)) {
+            $error = '请输入评论内容';
+        } elseif (mb_strlen($content) > 1000) {
+            $error = '评论内容不能超过1000字';
         } else {
-            $error = '评论发布失败，请稍后重试';
+            $pdo = getDBConnection();
+            $stmt = $pdo->prepare("INSERT INTO comments (post_id, user_id, parent_id, content) VALUES (?, ?, ?, ?)");
+            if ($stmt->execute([$postId, $_SESSION['user_id'], $parentId, $content])) {
+                $success = '评论发布成功！';
+                header("Refresh: 1; URL=post.php?id=" . $postId);
+            } else {
+                $error = '评论发布失败，请稍后重试';
+            }
         }
     }
 }
@@ -63,7 +66,7 @@ include __DIR__ . '/includes/header.php';
             <div class="post-detail-meta">
                 <div class="post-author-info">
                     <a href="user_profile.php?id=<?php echo $post['user_id']; ?>">
-                        <img src="uploads/avatars/<?php echo $post['avatar']; ?>" alt="<?php echo clean($post['nickname'] ?: $post['username']); ?>">
+                        <img src="<?php echo getAvatarUrl($post['avatar']); ?>" alt="<?php echo clean($post['nickname'] ?: $post['username']); ?>">
                     </a>
                     <div class="author-details">
                         <a href="user_profile.php?id=<?php echo $post['user_id']; ?>" class="author-name"><?php echo clean($post['nickname'] ?: $post['username']); ?></a>
@@ -79,7 +82,7 @@ include __DIR__ . '/includes/header.php';
         <div class="post-detail-content<?php echo !empty($post['content_html']) ? ' post-content-html' : ''; ?>">
             <?php
             if (!empty($post['content_html'])) {
-                echo $post['content_html'];
+                echo sanitizePostHtml($post['content_html']);
             } else {
                 echo nl2br(clean($post['content']));
             }
@@ -92,8 +95,7 @@ include __DIR__ . '/includes/header.php';
                 <a href="post-edit.php?id=<?php echo $postId; ?>" class="btn btn-outline btn-sm">
                     <i class="fas fa-edit"></i> 编辑
                 </a>
-                <a href="post-delete.php?id=<?php echo $postId; ?>" class="btn btn-danger btn-sm" 
-                   onclick="return confirm('确定要删除这个帖子吗？')">
+                <a href="post-delete.php?id=<?php echo $postId; ?>" class="btn btn-danger btn-sm">
                     <i class="fas fa-trash"></i> 删除
                 </a>
             </div>
@@ -115,6 +117,7 @@ include __DIR__ . '/includes/header.php';
             <?php endif; ?>
             
             <form method="POST" action="" class="comment-form">
+                <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                 <div class="form-group">
                     <textarea name="content" rows="4" placeholder="写下你的评论..." required></textarea>
                 </div>
@@ -142,7 +145,7 @@ include __DIR__ . '/includes/header.php';
             <?php foreach ($comments as $comment): ?>
             <div class="comment-item" id="comment-<?php echo $comment['id']; ?>">
                 <div class="comment-avatar">
-                    <img src="uploads/avatars/<?php echo $comment['avatar']; ?>" alt="<?php echo clean($comment['nickname'] ?: $comment['username']); ?>">
+                    <img src="<?php echo getAvatarUrl($comment['avatar']); ?>" alt="<?php echo clean($comment['nickname'] ?: $comment['username']); ?>">
                 </div>
                 <div class="comment-content">
                     <div class="comment-header">
@@ -160,7 +163,7 @@ include __DIR__ . '/includes/header.php';
                         <?php endif; ?>
                         <?php if ($currentUser && ($currentUser['id'] == $comment['user_id'] || isAdmin())): ?>
                         <a href="comment-delete.php?id=<?php echo $comment['id']; ?>&post_id=<?php echo $postId; ?>" 
-                           class="btn-delete" onclick="return confirm('确定要删除这条评论吗？')">
+                           class="btn-delete">
                             <i class="fas fa-trash"></i> 删除
                         </a>
                         <?php endif; ?>
@@ -169,6 +172,7 @@ include __DIR__ . '/includes/header.php';
                     <!-- 回复表单 -->
                     <div class="reply-form-wrapper" id="reply-form-<?php echo $comment['id']; ?>" style="display: none;">
                         <form method="POST" action="" class="reply-form">
+                            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                             <input type="hidden" name="parent_id" value="<?php echo $comment['id']; ?>">
                             <textarea name="content" rows="3" placeholder="回复 <?php echo clean($comment['nickname'] ?: $comment['username']); ?>..." required></textarea>
                             <div class="form-actions">
@@ -187,7 +191,7 @@ include __DIR__ . '/includes/header.php';
                         <?php foreach ($replies as $reply): ?>
                         <div class="reply-item" id="comment-<?php echo $reply['id']; ?>">
                             <div class="reply-avatar">
-                                <img src="uploads/avatars/<?php echo $reply['avatar']; ?>" alt="<?php echo clean($reply['nickname'] ?: $reply['username']); ?>">
+                                <img src="<?php echo getAvatarUrl($reply['avatar']); ?>" alt="<?php echo clean($reply['nickname'] ?: $reply['username']); ?>">
                             </div>
                             <div class="reply-content">
                                 <div class="reply-header">
@@ -200,7 +204,7 @@ include __DIR__ . '/includes/header.php';
                                 <?php if ($currentUser && ($currentUser['id'] == $reply['user_id'] || isAdmin())): ?>
                                 <div class="reply-actions">
                                     <a href="comment-delete.php?id=<?php echo $reply['id']; ?>&post_id=<?php echo $postId; ?>" 
-                                       class="btn-delete" onclick="return confirm('确定要删除这条回复吗？')">
+                                       class="btn-delete">
                                         <i class="fas fa-trash"></i> 删除
                                     </a>
                                 </div>

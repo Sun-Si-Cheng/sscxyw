@@ -4,13 +4,16 @@ require_once __DIR__ . '/includes/auth.php';
 $pdo = getDBConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_system'])) {
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        die('无效请求');
+    }
     $text = trim($_POST['text'] ?? '');
     $target = trim($_POST['target'] ?? 'all');
     if ($text !== '') {
         if ($target === 'all') {
             $stmt = $pdo->query("SELECT id FROM users WHERE status = 1");
             while ($row = $stmt->fetch()) {
-                $pdo->prepare("INSERT INTO notifications (user_id, type, data) VALUES (?, 'system', ?)")->execute([$row['id'], json_encode(['text' => $text])]);
+                $pdo->prepare("INSERT INTO notifications (user_id, type, data, created_at) VALUES (?, 'system', ?, NOW())")->execute([$row['id'], json_encode(['text' => $text])]);
             }
         }
         header('Location: notifications.php');
@@ -21,8 +24,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_system'])) {
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 30;
 $offset = ($page - 1) * $perPage;
-$stmt = $pdo->prepare("SELECT n.*, u.username FROM notifications n LEFT JOIN users u ON u.id = n.user_id ORDER BY n.created_at DESC LIMIT ? OFFSET ?");
-$stmt->execute([$perPage, $offset]);
+$stmt = $pdo->prepare("SELECT n.*, u.username FROM notifications n LEFT JOIN users u ON u.id = n.user_id ORDER BY n.created_at DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset);
+$stmt->execute();
 $list = $stmt->fetchAll();
 $total = (int) $pdo->query("SELECT COUNT(*) FROM notifications")->fetchColumn();
 $totalPages = ceil($total / $perPage);
@@ -36,6 +39,7 @@ include __DIR__ . '/includes/header.php';
 <div class="admin-card">
     <h3 style="margin-bottom: 0.75rem;">发送系统通知</h3>
     <form method="POST">
+        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
         <input type="hidden" name="send_system" value="1">
         <input type="hidden" name="target" value="all">
         <div class="form-group">

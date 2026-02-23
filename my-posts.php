@@ -19,8 +19,8 @@ $stmt = $pdo->prepare("SELECT p.*, c.name as category_name, c.icon as category_i
                       JOIN categories c ON p.category_id = c.id
                       WHERE p.user_id = ? AND p.status = 1
                       ORDER BY p.created_at DESC
-                      LIMIT ? OFFSET ?");
-$stmt->execute([$currentUser['id'], $perPage, $offset]);
+                      LIMIT " . (int)$perPage . " OFFSET " . (int)$offset);
+$stmt->execute([$currentUser['id']]);
 $posts = $stmt->fetchAll();
 
 // 获取帖子总数
@@ -85,8 +85,7 @@ include __DIR__ . '/includes/header.php';
                         <a href="post-edit.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-outline" title="编辑">
                             <i class="fas fa-edit"></i>
                         </a>
-                        <a href="post-delete.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-danger" 
-                           onclick="return confirm('确定要删除这个帖子吗？')" title="删除">
+                        <a href="post-delete.php?id=<?php echo $post['id']; ?>" class="btn btn-sm btn-danger" title="删除">
                             <i class="fas fa-trash"></i>
                         </a>
                     </td>

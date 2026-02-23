@@ -27,7 +27,7 @@ include __DIR__ . '/includes/header.php';
         <div class="profile-sidebar">
             <div class="profile-card">
                 <div class="profile-avatar-wrapper">
-                    <img src="uploads/avatars/<?php echo $profileUser['avatar']; ?>" alt="" class="profile-avatar-lg">
+                    <img src="<?php echo getAvatarUrl($profileUser['avatar']); ?>" alt="" class="profile-avatar-lg">
                 </div>
                 <h3 class="profile-name"><?php echo clean($profileUser['nickname'] ?: $profileUser['username']); ?></h3>
                 <p class="profile-username">@<?php echo clean($profileUser['username']); ?></p>

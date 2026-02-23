@@ -1,7 +1,26 @@
 <?php
 // 全局配置文件
 
-session_start();
+// 环境设置
+define('ENVIRONMENT', 'development'); // 可选值: development, production
+
+// 错误报告设置
+if (ENVIRONMENT === 'development') {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+} else {
+    error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+    ini_set('error_log', dirname(__DIR__) . '/logs/error.log');
+}
+
+if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) ? '1' : '0');
+    ini_set('session.use_strict_mode', '1');
+    session_start();
+}
 
 // 网站基础配置
 define('SITE_NAME', '校园论坛');

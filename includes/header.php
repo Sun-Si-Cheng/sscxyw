@@ -60,7 +60,7 @@ $categories = getCategories();
                         </div>
                         <div class="user-menu">
                             <a href="profile.php" class="user-avatar">
-                                <img src="uploads/avatars/<?php echo $currentUser['avatar']; ?>" alt="<?php echo clean($currentUser['nickname'] ?: $currentUser['username']); ?>">
+                                <img src="<?php echo getAvatarUrl($currentUser['avatar']); ?>" alt="<?php echo clean($currentUser['nickname'] ?: $currentUser['username']); ?>">
                                 <span><?php echo clean($currentUser['nickname'] ?: $currentUser['username']); ?></span>
                                 <i class="fas fa-chevron-down"></i>
                             </a>

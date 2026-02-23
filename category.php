@@ -75,12 +75,12 @@ include __DIR__ . '/includes/header.php';
                             <a href="post.php?id=<?php echo $post['id']; ?>"><?php echo clean($post['title']); ?></a>
                         </h4>
                         
-                        <p class="post-excerpt"><?php echo clean(truncateText(strip_tags($post['content']), 150)); ?></p>
+                        <p class="post-excerpt"><?php echo clean(truncateText(stripHtmlToText($post['content_html'] ?? $post['content']), 150)); ?></p>
                         
                         <div class="post-footer">
                             <div class="post-author">
                                 <a href="user_profile.php?id=<?php echo $post['user_id']; ?>">
-                                    <img src="uploads/avatars/<?php echo $post['avatar']; ?>" alt="<?php echo clean($post['nickname'] ?: $post['username']); ?>">
+                                    <img src="<?php echo getAvatarUrl($post['avatar']); ?>" alt="<?php echo clean($post['nickname'] ?: $post['username']); ?>">
                                     <span><?php echo clean($post['nickname'] ?: $post['username']); ?></span>
                                 </a>
                                 <span class="post-time"><?php echo timeAgo($post['created_at']); ?></span>

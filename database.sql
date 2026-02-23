@@ -66,6 +66,11 @@ INSERT INTO categories (name, description, icon, sort_order) VALUES
 ('校园公告', '学校重要通知和公告', 'bullhorn', 1),
 ('学习交流', '课程讨论、学习资料分享', 'book', 2),
 ('生活杂谈', '校园生活、日常分享', 'coffee', 3),
+('二手交易', '闲置物品交换、买卖', 'shopping-cart', 4),
+('失物招领', '寻物启事、失物认领', 'search', 5),
+('社团活动', '社团招新、活动宣传', 'users', 6),
+('求职招聘', '实习、兼职、就业信息', 'briefcase', 7),
+('技术讨论', '编程、技术交流', 'code', 8);
 
 -- 插入测试管理员账号（密码：admin123）
 INSERT INTO users (username, password, email, nickname, role) VALUES

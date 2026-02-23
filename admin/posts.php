@@ -13,19 +13,19 @@ $sql = "SELECT p.id, p.user_id, p.title, p.status, p.is_top, p.views, p.created_
         JOIN users u ON u.id = p.user_id
         WHERE 1=1";
 $params = [];
+$like = '';
 if ($statusFilter >= 0) {
     $sql .= " AND p.status = ?";
     $params[] = $statusFilter;
 }
-$like = $q !== '' ? '%' . $q . '%' : '';
 if ($q !== '') {
-    $sql .= " AND (p.title LIKE ? OR p.content LIKE ?)";
+    $like = '%' . $q . '%';
+    $sql .= " AND (p.title LIKE ? OR p.content LIKE ? OR COALESCE(p.content_text, p.content) LIKE ?)";
+    $params[] = $like;
     $params[] = $like;
     $params[] = $like;
 }
-$sql .= " ORDER BY p.is_top DESC, p.created_at DESC LIMIT ? OFFSET ?";
-$params[] = $perPage;
-$params[] = $offset;
+$sql .= " ORDER BY p.is_top DESC, p.created_at DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset;
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $posts = $stmt->fetchAll();
@@ -35,16 +35,20 @@ if ($statusFilter >= 0) $countParams[] = $statusFilter;
 if ($q !== '') {
     $countParams[] = $like;
     $countParams[] = $like;
+    $countParams[] = $like;
 }
 $countSql = "SELECT COUNT(*) FROM posts p WHERE 1=1";
 if ($statusFilter >= 0) $countSql .= " AND p.status = ?";
-if ($q !== '') $countSql .= " AND (p.title LIKE ? OR p.content LIKE ?)";
+if ($q !== '') $countSql .= " AND (p.title LIKE ? OR p.content LIKE ? OR COALESCE(p.content_text, p.content) LIKE ?)";
 $stmt = $pdo->prepare($countSql);
 $stmt->execute($countParams);
 $total = (int) $stmt->fetchColumn();
 $totalPages = ceil($total / $perPage);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['post_id'])) {
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        die('无效请求');
+    }
     $pid = (int) $_POST['post_id'];
     if ($pid) {
         if ($_POST['action'] === 'delete') {
@@ -97,12 +101,14 @@ include __DIR__ . '/includes/header.php';
                 <td><?php echo $p['created_at']; ?></td>
                 <td>
                     <form method="POST" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                         <input type="hidden" name="post_id" value="<?php echo $p['id']; ?>">
                         <input type="hidden" name="action" value="toggle_top">
                         <button type="submit" class="btn btn-sm btn-outline"><?php echo $p['is_top'] ? '取消置顶' : '置顶'; ?></button>
                     </form>
                     <?php if ($p['status']): ?>
                     <form method="POST" style="display:inline;" onsubmit="return confirm('确定删除该帖子？');">
+                        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                         <input type="hidden" name="post_id" value="<?php echo $p['id']; ?>">
                         <input type="hidden" name="action" value="delete">
                         <button type="submit" class="btn btn-sm btn-danger">删除</button>

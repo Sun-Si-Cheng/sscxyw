@@ -11,6 +11,11 @@ if (!isLoggedIn()) {
 }
 
 $adminUser = getCurrentUser();
+if (!$adminUser || $adminUser['status'] != 1) {
+    session_destroy();
+    header('Location: login.php');
+    exit;
+}
 if ($adminUser['role'] !== 'admin') {
     header('Location: ../index.php');
     exit;

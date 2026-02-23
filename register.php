@@ -9,50 +9,51 @@ $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
-    $confirmPassword = $_POST['confirm_password'] ?? '';
-    $nickname = trim($_POST['nickname'] ?? '');
-    
-    // 验证输入
-    if (empty($username) || empty($email) || empty($password)) {
-        $error = '请填写所有必填项';
-    } elseif (strlen($username) < 3 || strlen($username) > 20) {
-        $error = '用户名长度应在3-20个字符之间';
-    } elseif (!preg_match('/^[a-zA-Z0-9_]+$/', $username)) {
-        $error = '用户名只能包含字母、数字和下划线';
-    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $error = '请输入有效的邮箱地址';
-    } elseif (strlen($password) < 6) {
-        $error = '密码长度至少为6个字符';
-    } elseif ($password !== $confirmPassword) {
-        $error = '两次输入的密码不一致';
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        $error = '无效请求，请刷新页面重试';
     } else {
-        $pdo = getDBConnection();
+        $username = trim($_POST['username'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $confirmPassword = $_POST['confirm_password'] ?? '';
+        $nickname = trim($_POST['nickname'] ?? '');
         
-        // 检查用户名是否已存在
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        if ($stmt->fetch()) {
-            $error = '用户名已存在';
+        if (empty($username) || empty($email) || empty($password)) {
+            $error = '请填写所有必填项';
+        } elseif (strlen($username) < 3 || strlen($username) > 20) {
+            $error = '用户名长度应在3-20个字符之间';
+        } elseif (!preg_match('/^[a-zA-Z0-9_]+$/', $username)) {
+            $error = '用户名只能包含字母、数字和下划线';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $error = '请输入有效的邮箱地址';
+        } elseif (strlen($password) < 6) {
+            $error = '密码长度至少为6个字符';
+        } elseif ($password !== $confirmPassword) {
+            $error = '两次输入的密码不一致';
         } else {
-            // 检查邮箱是否已存在
-            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-            $stmt->execute([$email]);
+            $pdo = getDBConnection();
+            
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
+            $stmt->execute([$username]);
             if ($stmt->fetch()) {
-                $error = '邮箱已被注册';
+                $error = '用户名已存在';
             } else {
-                // 创建新用户
-                $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
-                $displayName = empty($nickname) ? $username : $nickname;
-                
-                $stmt = $pdo->prepare("INSERT INTO users (username, password, email, nickname) VALUES (?, ?, ?, ?)");
-                if ($stmt->execute([$username, $hashedPassword, $email, $displayName])) {
-                    $success = '注册成功！正在跳转到登录页面...';
-                    header("Refresh: 2; URL=login.php");
+                $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+                $stmt->execute([$email]);
+                if ($stmt->fetch()) {
+                    $error = '邮箱已被注册';
                 } else {
-                    $error = '注册失败，请稍后重试';
+                    $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+                    $displayName = empty($nickname) ? $username : $nickname;
+                    
+                    $stmt = $pdo->prepare("INSERT INTO users (username, password, email, nickname) VALUES (?, ?, ?, ?)");
+                    if ($stmt->execute([$username, $hashedPassword, $email, $displayName])) {
+                        $success = '注册成功！正在跳转到登录页面...';
+                        // 显示成功消息后重定向
+                        echo '<script>setTimeout(function() { window.location.href = "login.php"; }, 2000);</script>';
+                    } else {
+                        $error = '注册失败，请稍后重试';
+                    }
                 }
             }
         }
@@ -76,6 +77,7 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
         
         <form method="POST" action="" class="auth-form">
+            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             <div class="form-group">
                 <label for="username">用户名 <span class="required">*</span></label>
                 <div class="input-group">

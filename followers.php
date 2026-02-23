@@ -28,7 +28,7 @@ include __DIR__ . '/includes/header.php';
             <?php foreach ($list as $u): ?>
             <li class="follow-item">
                 <a href="user_profile.php?id=<?php echo $u['id']; ?>" class="follow-avatar">
-                    <img src="uploads/avatars/<?php echo $u['avatar']; ?>" alt="">
+                    <img src="<?php echo getAvatarUrl($u['avatar']); ?>" alt="">
                 </a>
                 <div class="follow-info">
                     <a href="user_profile.php?id=<?php echo $u['id']; ?>"><?php echo clean($u['nickname'] ?: $u['username']); ?></a>
@@ -53,5 +53,27 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
     </div>
 </div>
+
+<script>
+(function() {
+    document.querySelectorAll('.btn-follow-inline').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var userId = this.getAttribute('data-user-id');
+            var following = this.getAttribute('data-following') === '1';
+            var self = this;
+            var fd = new FormData();
+            fd.append('target_user_id', userId);
+            fetch('api/follow/toggle.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (res.error) { alert(res.error); return; }
+                    self.setAttribute('data-following', res.followed ? '1' : '0');
+                    self.textContent = res.followed ? '已关注' : '关注';
+                    self.className = 'btn btn-sm ' + (res.followed ? 'btn-outline' : 'btn-primary') + ' btn-follow-inline';
+                });
+        });
+    });
+})();
+</script>
 
 <?php include __DIR__ . '/includes/footer.php'; ?>

@@ -23,36 +23,52 @@ $categories = getCategories();
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $categoryId = intval($_POST['category_id'] ?? 0);
-    $title = trim($_POST['title'] ?? '');
-    $contentRaw = trim($_POST['content'] ?? '');
-    $contentHtml = sanitizePostHtml($contentRaw);
-    $contentText = stripHtmlToText($contentRaw);
-    if (mb_strlen($contentText) > 5000) {
-        $contentText = mb_substr($contentText, 0, 5000);
-    }
-    $content = $contentHtml;
-
-    if ($categoryId <= 0) {
-        $error = '请选择帖子板块';
-    } elseif (empty($title)) {
-        $error = '请输入帖子标题';
-    } elseif (mb_strlen($title) > 200) {
-        $error = '标题长度不能超过200个字符';
-    } elseif (empty($contentText)) {
-        $error = '请输入帖子内容';
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        $error = '无效请求，请刷新页面重试';
     } else {
-        $pdo = getDBConnection();
-        $stmt = $pdo->prepare("UPDATE posts SET category_id = ?, title = ?, content = ?, content_html = ?, content_text = ? WHERE id = ?");
-        $ok = @$stmt->execute([$categoryId, $title, $content, $contentHtml, $contentText, $postId]);
-        if (!$ok) {
-            $stmt = $pdo->prepare("UPDATE posts SET category_id = ?, title = ?, content = ? WHERE id = ?");
-            $ok = $stmt->execute([$categoryId, $title, $content, $postId]);
+        $categoryId = intval($_POST['category_id'] ?? 0);
+        $title = trim($_POST['title'] ?? '');
+        $contentRaw = trim($_POST['content'] ?? '');
+        $contentHtml = sanitizePostHtml($contentRaw);
+        $contentText = stripHtmlToText($contentHtml);
+        if (mb_strlen($contentText) > 5000) {
+            $contentText = mb_substr($contentText, 0, 5000);
         }
-        if ($ok) {
-            redirect('post.php?id=' . $postId);
+        $content = $contentHtml;
+
+        if ($categoryId <= 0) {
+            $error = '请选择帖子板块';
+        } elseif (empty($title)) {
+            $error = '请输入帖子标题';
+        } elseif (mb_strlen($title) > 200) {
+            $error = '标题长度不能超过200个字符';
+        } elseif (empty($contentText)) {
+            $error = '请输入帖子内容';
+        } elseif (mb_strlen($contentText) > 50000) {
+            $error = '内容长度不能超过50000个字符';
         } else {
-            $error = '更新失败，请稍后重试';
+            $pdo = getDBConnection();
+            try {
+                $stmt = $pdo->prepare("UPDATE posts SET category_id = ?, title = ?, content = ?, content_html = ?, content_text = ? WHERE id = ?");
+                $ok = $stmt->execute([$categoryId, $title, $content, $contentHtml, $contentText, $postId]);
+                if (!$ok) {
+                    // 尝试兼容旧表结构
+                    $stmt = $pdo->prepare("UPDATE posts SET category_id = ?, title = ?, content = ? WHERE id = ?");
+                    $ok = $stmt->execute([$categoryId, $title, $content, $postId]);
+                }
+                if ($ok) {
+                    redirect('post.php?id=' . $postId);
+                } else {
+                    $error = '更新失败，请稍后重试';
+                }
+            } catch (PDOException $e) {
+                if (ENVIRONMENT === 'development') {
+                    $error = '更新失败: ' . $e->getMessage();
+                } else {
+                    $error = '更新失败，请稍后重试';
+                    error_log('更新帖子失败: ' . $e->getMessage());
+                }
+            }
         }
     }
 }
@@ -70,6 +86,7 @@ include __DIR__ . '/includes/header.php';
         <?php endif; ?>
         
         <form method="POST" action="" class="post-form">
+            <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
             <div class="form-group">
                 <label for="category_id">选择板块 <span class="required">*</span></label>
                 <select name="category_id" id="category_id" required>

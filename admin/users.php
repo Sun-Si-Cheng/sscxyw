@@ -9,14 +9,13 @@ $offset = ($page - 1) * $perPage;
 
 $sql = "SELECT id, username, nickname, email, avatar, role, status, created_at FROM users WHERE 1=1";
 $params = [];
+$like = '';
 if ($q !== '') {
     $sql .= " AND (username LIKE ? OR nickname LIKE ? OR email LIKE ?)";
     $like = '%' . $q . '%';
     $params = array_merge($params, [$like, $like, $like]);
 }
-$sql .= " ORDER BY id DESC LIMIT ? OFFSET ?";
-$params[] = $perPage;
-$params[] = $offset;
+$sql .= " ORDER BY id DESC LIMIT " . (int)$perPage . " OFFSET " . (int)$offset;
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $users = $stmt->fetchAll();
@@ -34,6 +33,9 @@ $totalPages = ceil($total / $perPage);
 
 // 操作：禁用/启用
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'], $_POST['user_id'])) {
+    if (!isset($_POST['csrf_token']) || !validateCSRFToken($_POST['csrf_token'])) {
+        die('无效请求');
+    }
     $uid = (int) $_POST['user_id'];
     if ($uid && $uid != getCurrentUser()['id']) {
         if ($_POST['action'] === 'toggle_status') {
@@ -85,6 +87,7 @@ include __DIR__ . '/includes/header.php';
                 <td>
                     <?php if ($u['id'] != getCurrentUser()['id']): ?>
                     <form method="POST" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="<?php echo generateCSRFToken(); ?>">
                         <input type="hidden" name="action" value="toggle_status">
                         <input type="hidden" name="user_id" value="<?php echo $u['id']; ?>">
                         <button type="submit" class="btn btn-sm <?php echo $u['status'] ? 'btn-danger' : 'btn-outline'; ?>">
